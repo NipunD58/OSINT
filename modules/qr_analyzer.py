@@ -11,7 +11,6 @@ import requests
 import streamlit as st
 import whois
 from PIL import Image
-from pyzbar.pyzbar import decode
 
 
 def _classify_content(content: str) -> str:
@@ -26,6 +25,39 @@ def _classify_content(content: str) -> str:
     if lowered.startswith("sms:"):
         return "sms"
     return "text"
+
+
+def _decode_with_pyzbar(image: Image.Image) -> Optional[Dict[str, Any]]:
+    """Decode QR/barcode content using pyzbar if available."""
+    try:
+        from pyzbar.pyzbar import decode  # local import to avoid zbar import failure at module load
+    except Exception:
+        return None
+    decoded = decode(image)
+    if not decoded:
+        return None
+    first = decoded[0]
+    return {
+        "content": first.data.decode("utf-8", errors="ignore"),
+        "symbology": first.type,
+    }
+
+
+def _decode_with_opencv(image: Image.Image) -> Optional[Dict[str, Any]]:
+    """Decode QR content using OpenCV as a fallback."""
+    try:
+        import cv2
+        import numpy as np
+    except Exception:
+        return None
+
+    rgb = image.convert("RGB")
+    frame = cv2.cvtColor(np.array(rgb), cv2.COLOR_RGB2BGR)
+    detector = cv2.QRCodeDetector()
+    content, _, _ = detector.detectAndDecode(frame)
+    if not content:
+        return None
+    return {"content": content, "symbology": "QRCode"}
 
 
 def _get_secret(name: str) -> Optional[str]:
@@ -43,13 +75,18 @@ def decode_qr(image_bytes: bytes) -> Dict[str, Any]:
     """Decode QR or barcode content from an image."""
     try:
         image = Image.open(io.BytesIO(image_bytes))
-        decoded = decode(image)
+        decoded = _decode_with_pyzbar(image)
         if not decoded:
-            return {"success": False, "data": {}, "error": "No QR code detected"}
+            decoded = _decode_with_opencv(image)
+        if not decoded:
+            return {
+                "success": False,
+                "data": {},
+                "error": "No QR code detected (pyzbar unavailable and OpenCV decode failed)",
+            }
 
-        first = decoded[0]
-        content = first.data.decode("utf-8", errors="ignore")
-        symbology = first.type
+        content = decoded["content"]
+        symbology = decoded["symbology"]
         content_type = _classify_content(content)
 
         return {
