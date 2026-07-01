@@ -17,3 +17,11 @@ ultralytics
 torch
 google-genai
 python-dotenv
+# IPDR Analytics dependencies
+pandas>=2.0.0
+folium>=0.15.0
+streamlit-folium>=0.18.0
+openpyxl>=3.1.0
+xlrd>=2.0.1
+faker>=22.0.0
+ollama

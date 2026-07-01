@@ -6,11 +6,31 @@ from urllib.parse import urljoin, urlparse
 
 import io
 import os
+import base64
+import re
+import socket
+from urllib.parse import unquote, parse_qsl
+
+try:
+    from bs4 import BeautifulSoup
+except ImportError:
+    BeautifulSoup = None
 
 import requests
 import streamlit as st
 import whois
 from PIL import Image
+
+PROMPT_INJECTION_SIGNATURES = [
+    "ignore previous instructions",
+    "ignore all previous instructions",
+    "system prompt",
+    "jailbreak",
+    "disregard previous",
+    "you are now",
+    "act as",
+    "print your instructions",
+]
 
 
 def _classify_content(content: str) -> str:
@@ -164,6 +184,82 @@ def _urlscan_submit(url: str, api_key: str) -> Dict[str, Any]:
     return {"uuid": payload.get("uuid"), "result_url": payload.get("result")}
 
 
+def _decode_anomalies(url: str) -> List[Dict[str, str]]:
+    """Check URL for Base64 anomalies."""
+    anomalies = []
+    parsed = urlparse(url)
+    params = parse_qsl(parsed.query)
+    for k, v in params:
+        if len(v) >= 16 and re.match(r'^[A-Za-z0-9+/]+={0,2}$', v):
+            try:
+                decoded = base64.b64decode(v).decode('utf-8', errors='replace')
+                anomalies.append({"type": "Base64 Param", "key": k, "decoded": decoded})
+            except Exception:
+                pass
+    return anomalies
+
+
+def _check_prompt_injections(url: str) -> List[str]:
+    """Check URL for prompt injection strings."""
+    injections = []
+    decoded_url = unquote(url).lower()
+    for sig in PROMPT_INJECTION_SIGNATURES:
+        if sig in decoded_url:
+            injections.append(sig)
+    return injections
+
+
+def _advanced_threat_analysis(final_url: str) -> Dict[str, Any]:
+    """Extract cookies, scripts, iframes, hidden params, and IP trace."""
+    threat_data = {
+        "ip_address": None,
+        "cookies": [],
+        "scripts": [],
+        "iframes": [],
+        "hidden_params": []
+    }
+    
+    try:
+        domain = urlparse(final_url).netloc.split(':')[0]
+        if domain:
+            threat_data["ip_address"] = socket.gethostbyname(domain)
+    except Exception:
+        pass
+
+    try:
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        resp = requests.get(final_url, headers=headers, timeout=10)
+        
+        for cookie in resp.cookies:
+            threat_data["cookies"].append({"name": cookie.name, "domain": cookie.domain, "secure": cookie.secure})
+            
+        if BeautifulSoup and 'text/html' in resp.headers.get('Content-Type', '').lower():
+            soup = BeautifulSoup(resp.text, 'html.parser')
+            
+            for script in soup.find_all('script'):
+                src = script.get('src')
+                if src:
+                    threat_data["scripts"].append(src)
+                elif script.string and len(script.string.strip()) > 50:
+                    threat_data["scripts"].append("[Inline Script]")
+                    
+            for iframe in soup.find_all('iframe'):
+                src = iframe.get('src', '[No Source]')
+                threat_data["iframes"].append(src)
+                
+            for input_tag in soup.find_all('input', type='hidden'):
+                name = input_tag.get('name', '[Unnamed]')
+                value = input_tag.get('value', '')
+                threat_data["hidden_params"].append({
+                    "name": name, 
+                    "value": value[:50] + "..." if len(value) > 50 else value
+                })
+    except Exception:
+        pass
+        
+    return threat_data
+
+
 def analyze_url(url: str) -> Dict[str, Any]:
     """Analyze a URL for redirects, domain age, and threat intelligence."""
     errors: List[str] = []
@@ -209,6 +305,12 @@ def analyze_url(url: str) -> Dict[str, Any]:
             errors.append("URLScan API key missing")
         data["urlscan_result"] = urlscan_result
 
+        # Enhanced Security Data
+        data["anomalies"] = _decode_anomalies(final_url)
+        data["prompt_injections"] = _check_prompt_injections(final_url)
+        advanced = _advanced_threat_analysis(final_url)
+        data["advanced_threats"] = advanced
+
         risk_score = 0
         redirect_hops = max(0, len(redirect_chain) - 1)
         if vt_result.get("malicious", 0) > 0:
@@ -221,6 +323,14 @@ def analyze_url(url: str) -> Dict[str, Any]:
             risk_score += 15
         if final_domain and original_domain and final_domain != original_domain:
             risk_score += 15
+        if data["anomalies"]:
+            risk_score += 20
+        if data["prompt_injections"]:
+            risk_score += 40
+        if advanced["iframes"]:
+            risk_score += 10
+        if advanced["hidden_params"]:
+            risk_score += 10
 
         if risk_score <= 25:
             risk_level = "LOW"

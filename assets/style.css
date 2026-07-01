@@ -1,27 +1,16 @@
-/* OSINT Investigator dark theme */
+/* OSINT Investigator – decorative overrides only.
+   Core theme colours (bg, text, sidebar, primary) are now managed
+   in .streamlit/config.toml so they load before the first render. */
 
 :root {
-    --bg-main: #0e1117;
-    --bg-sidebar: #0a0c11;
-    --bg-card: #141922;
-    --border-accent: #243042;
-    --text-main: #f2f4f8;
-    --text-muted: #9aa4b2;
-    --accent: #1f6feb;
-    --success: #1f8b4c;
-    --warning: #c69026;
-    --error: #d43f3a;
-    --code-bg: #0b0f14;
-    --code-border: #1c2433;
-}
-
-section.main {
-    background-color: var(--bg-main);
-    color: var(--text-main);
-}
-
-section[data-testid="stSidebar"] {
-    background-color: var(--bg-sidebar);
+    --bg-card:      #141922;
+    --border-accent:#243042;
+    --text-muted:   #9aa4b2;
+    --success:      #1f8b4c;
+    --warning:      #c69026;
+    --error:        #d43f3a;
+    --code-bg:      #0b0f14;
+    --code-border:  #1c2433;
 }
 
 div[data-testid="metric-container"] {
@@ -37,7 +26,6 @@ div[data-testid="metric-container"] label {
 
 div[data-testid="stDataFrame"] thead tr th {
     background-color: #172033 !important;
-    color: var(--text-main) !important;
     font-weight: 700 !important;
 }
 
@@ -61,7 +49,6 @@ div[data-testid="stDataFrame"] thead tr th {
 code, pre {
     font-family: "Consolas", "Courier New", monospace !important;
     background-color: var(--code-bg) !important;
-    color: var(--text-main) !important;
     border: 1px solid var(--code-border);
     border-radius: 6px;
 }
